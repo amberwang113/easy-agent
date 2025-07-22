@@ -1,0 +1,7 @@
+.vs/
+.config/
+
+bin/
+obj/
+
+appsettings.Development.json
