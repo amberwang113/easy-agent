@@ -15,13 +15,69 @@ namespace AIChatbotWithRag.Controllers
     [Route("/")]
     public class ChatController : Controller
     {
-        private const string azureAgent = "asst_nFU5kuwQWFZX9R3jKEmDLwm2";
-        private DefaultAzureCredential credential = new DefaultAzureCredential();
+        private DefaultAzureCredential _credential;
         private readonly ChatbotConfiguration _config;
+        PersistentAgentsClient _agentsClient;
+        PersistentAgent _agent;
 
         public ChatController(IOptions<ChatbotConfiguration> options)
         {
             _config = options.Value;
+            _credential = new DefaultAzureCredential();
+        }
+
+        private async Task EnsureInitialized()
+        {
+            if (_agentsClient != null)
+            {
+                return;
+            }
+
+            _agentsClient = new(_config.WEBAPP_EASYAGENT_FOUNDRY_ENDPOINT, _credential);
+
+            if (!string.IsNullOrEmpty(_config.WEBAPP_EASYAGENT_FOUNDRY_AGENTID))
+            {
+                _agent = await _agentsClient.Administration.GetAgentAsync(_config.WEBAPP_EASYAGENT_FOUNDRY_AGENTID);
+                return;
+            }
+
+            // TODO: Delete this and put in setup
+            FunctionToolDefinition requestMoreInformationTool = new(
+                name: "requestMoreInformationFromSiteContext",
+                description: "Get information from site context with vector similarity search for a provided question.",
+                parameters: BinaryData.FromObjectAsJson(
+                    new
+                    {
+                        Type = "object",
+                        Properties = new
+                        {
+                            Question = new
+                            {
+                                Type = "string",
+                                Description = "Question or phrase set to search on."
+                            }
+                        },
+                        Required = new[] { "question" }
+                    },
+                    new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+
+            BinaryData spec = BinaryData.FromString(_config.WEBAPP_EASYAGENT_FOUNDRY_OPENAPISPEC);
+
+            OpenApiAnonymousAuthDetails openApiAnonAuth = new();
+
+            OpenApiToolDefinition openApiToolDef = new(
+                name: "manage_fashion_store",
+                description: "Manage fashion store inventory",
+                spec: spec,
+                openApiAuthentication: openApiAnonAuth,
+                defaultParams: ["format"]
+            );
+
+            _agent = await _agentsClient.Administration.CreateAgentAsync(
+                model: "gpt-4.1-2",
+                name: "Open API Tool Calling Agent",
+                instructions: "You're a chatbot in charge of responding to customer questions based on site context information scraped from a website. If necessary, call the provided RequestMoreInformationFromSiteContext tool to get necessary site information using the provided question. The site information provided should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in the site context.",
+                tools: [openApiToolDef, requestMoreInformationTool]);
         }
 
 
@@ -30,6 +86,8 @@ namespace AIChatbotWithRag.Controllers
         {
             try
             {
+                await EnsureInitialized();
+
                 return Ok(await CallAIFoundryAgent(chatMessage.Content, chatMessage.SessionId));
             }
             catch (Exception e)
@@ -41,14 +99,9 @@ namespace AIChatbotWithRag.Controllers
 
         private async Task<ChatMessage> CallAIFoundryAgent(string userMessage, string threadId)
         {
-            PersistentAgentsClient client = new(_config.WEBAPP_EASYAGENT_FOUNDRY_ENDPOINT, credential);
+            PersistentAgentThread thread = threadId == null ? await _agentsClient.Threads.CreateThreadAsync() : await _agentsClient.Threads.GetThreadAsync(threadId);
 
-            // TODO: from configuration
-            PersistentAgent agent = await client.Administration.GetAgentAsync(_config.WEBAPP_EASYAGENT_FOUNDRY_AGENTID);
-
-            PersistentAgentThread thread = threadId == null ? await client.Threads.CreateThreadAsync() : await client.Threads.GetThreadAsync(threadId);
-
-            PersistentThreadMessage message = await client.Messages.CreateMessageAsync(
+            PersistentThreadMessage message = await _agentsClient.Messages.CreateMessageAsync(
                 thread.Id,
                 MessageRole.User,
                 userMessage);
@@ -56,7 +109,7 @@ namespace AIChatbotWithRag.Controllers
             List<ToolOutput> toolOutputs = [];
             ThreadRun streamRun = default;
 
-            AsyncCollectionResult<StreamingUpdate> stream = client.Runs.CreateRunStreamingAsync(thread.Id, agent.Id);
+            AsyncCollectionResult<StreamingUpdate> stream = _agentsClient.Runs.CreateRunStreamingAsync(thread.Id, _agent.Id);
 
             do
             {
@@ -65,7 +118,7 @@ namespace AIChatbotWithRag.Controllers
                 {
                     if (streamingUpdate.UpdateKind == StreamingUpdateReason.RunCreated)
                     {
-                        Console.WriteLine($" --- Run started for thread id {thread.Id} agent id {agent.Id} ---");
+                        Console.WriteLine($" --- Run started for thread id {thread.Id} _agent id {_agent.Id} ---");
                     }
                     else if (streamingUpdate is RequiredActionUpdate submitToolOutputsUpdate)
                     {
@@ -75,7 +128,7 @@ namespace AIChatbotWithRag.Controllers
                                 newActionUpdate.FunctionName,
                                 newActionUpdate.ToolCallId,
                                 newActionUpdate.FunctionArguments,
-                                credential
+                                _credential
                         ));
                         streamRun = submitToolOutputsUpdate.Value;
                     }
@@ -92,11 +145,11 @@ namespace AIChatbotWithRag.Controllers
 
                 if (toolOutputs.Count > 0)
                 {
-                    stream = client.Runs.SubmitToolOutputsToStreamAsync(streamRun, toolOutputs);
+                    stream = _agentsClient.Runs.SubmitToolOutputsToStreamAsync(streamRun, toolOutputs);
                 }
             } while (toolOutputs.Count > 0);
 
-            var messages = client.Messages.GetMessages(thread.Id, streamRun?.Id);
+            var messages = _agentsClient.Messages.GetMessages(thread.Id, streamRun?.Id);
 
             var tmp = messages.First().ContentItems[0] as MessageTextContent;
             string result = tmp == null ? $"Latest message {messages.First()?.Id} returned in run {streamRun?.Id} was not a MessageTextContent" : $"{tmp.Text}\n\n | Thread ID: {thread.Id}";
@@ -138,9 +191,9 @@ namespace AIChatbotWithRag.Controllers
                 return string.Empty;
             }
 
-            DBService dbService = new DBService(_config.WEBAPP_EASYAGENT_DB_ENDPOINT, credential, "testFailover-vectors", "base");
+            DBService dbService = new DBService(_config.WEBAPP_EASYAGENT_DB_ENDPOINT, _credential, "testFailover-vectors", "base");
 
-            var aClient = new AIProjectClient(new Uri(_config.WEBAPP_EASYAGENT_FOUNDRY_ENDPOINT), credential);
+            var aClient = new AIProjectClient(new Uri(_config.WEBAPP_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
 
             var eClient = aClient.GetAzureOpenAIEmbeddingClient(deploymentName: _config.WEBAPP_EASYAGENT_EMBEDDING_MODEL);
 
