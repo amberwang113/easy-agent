@@ -44,26 +44,6 @@ namespace EasyAgent.Controllers
             }
 
             // TODO: Delete this and put in setup
-            /*
-            FunctionToolDefinition requestMoreInformationTool = new(
-                name: "requestMoreInformationFromSiteContext",
-                description: "Get information from site context with vector similarity search for a provided question.",
-                parameters: BinaryData.FromObjectAsJson(
-                    new
-                    {
-                        Type = "object",
-                        Properties = new
-                        {
-                            Question = new
-                            {
-                                Type = "string",
-                                Description = "Question or phrase set to search on."
-                            }
-                        },
-                        Required = new[] { "question" }
-                    },
-                    new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
-            */
 
             BinaryData spec = BinaryData.FromString(_config.WEBAPP_EASYAGENT_FOUNDRY_OPENAPISPEC);
 
