@@ -1,4 +1,4 @@
-﻿namespace AIChatbotWithRag.Models
+﻿namespace EasyAgent.Models
 {
     public class ChatMessage
     {

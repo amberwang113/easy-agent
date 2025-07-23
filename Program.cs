@@ -1,3 +1,4 @@
+using EasyAgent.Plugins;
 using EasyAgent;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,6 +9,9 @@ builder.Services.Configure<ChatbotConfiguration>(builder.Configuration);
 // Add services to the container.
 builder.Services.AddRazorPages();
 builder.Services.AddControllers();
+
+// Register the plugin as scoped instead of singleton to ensure proper dependency injection
+builder.Services.AddScoped<SiteContextPlugin>();
 
 var app = builder.Build();
 
