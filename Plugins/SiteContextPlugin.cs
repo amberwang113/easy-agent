@@ -26,17 +26,24 @@ namespace EasyAgent.Plugins
             }
 
             // TODO: Don't hardcode the db name (site)
-            DBService dbService = new DBService(_config.WEBAPP_EASYAGENT_DB_ENDPOINT, _credential, "testFailover-vectors", "base");
+            DBService dbService = new DBService(_config.WEBSITE_EASYAGENT_SITECONTEXT_DB_ENDPOINT, _credential, _config.WEBSITE_SITE_NAME, "base");
 
-            var aClient = new AIProjectClient(new Uri(_config.WEBAPP_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
+            var qEmbedding = await GenerateEmbedding(question);
 
-            var eClient = aClient.GetAzureOpenAIEmbeddingClient(deploymentName: _config.WEBAPP_EASYAGENT_EMBEDDING_MODEL);
-
-            var qEmbedding = eClient.GenerateEmbedding(question);
-
-            string context = string.Join(",", await dbService.GetNNearestTextsAndEmbeddingsAsync(qEmbedding.Value.ToFloats().ToArray()));
+            string context = string.Join(",", await dbService.GetNNearestTextsAndEmbeddingsAsync(qEmbedding));
 
             return context;
+        }
+
+        public async Task<float[]> GenerateEmbedding(string sentence)
+        {
+            var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
+
+            var eClient = aClient.GetAzureOpenAIEmbeddingClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_EMBEDDING_MODEL);
+
+            var embedding = eClient.GenerateEmbedding(sentence);
+
+            return embedding.Value.ToFloats().ToArray();
         }
     }
 }
