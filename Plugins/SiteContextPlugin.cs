@@ -24,8 +24,9 @@ namespace EasyAgent.Plugins
                 return string.Empty;
             }
 
-            // TODO: Don't hardcode the db name (site)
-            DBService dbService = new DBService(_config.WEBSITE_EASYAGENT_SITECONTEXT_DB_ENDPOINT, _credential, _config.WEBSITE_SITE_NAME, "base");
+            // TODO: Don't hardcode the container name "base"
+            string dbName = _config.WEBSITE_EASYAGENT_SITECONTEXT_DB_NAME;
+            DBService dbService = new DBService(string.IsNullOrEmpty(dbName) ? _config.WEBSITE_EASYAGENT_SITECONTEXT_DB_ENDPOINT : dbName, _credential, _config.WEBSITE_SITE_NAME, "base");
 
             var qEmbedding = await GenerateEmbedding(question);
 
