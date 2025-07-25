@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>EasyAgent</id>
+    <title>Easy Agent Extension</title>
+    <version>1.0.1</version>
+    <authors>Amber Wang</authors>
+    <licenseUrl>http://opensource.org/licenses/Apache-2.0</licenseUrl>
+    <projectUrl>https://github.com/amberwang113/easy-agent</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>A Site Extension that enables AI agent support</description>
+    <iconUrl>https://raw.githubusercontent.com/amberwang113/easy-agent/main/EasyAgent50x50.png</iconUrl>
+    <tags>Easy Agent Extension</tags>
+    <packageTypes>
+      <packageType name="AzureSiteExtension" />
+    </packageTypes>
+  </metadata>
+  <files>
+    <file src="bin\Release\net9.0\publish\**\*.*" target="content" />
+  </files>
+</package>
