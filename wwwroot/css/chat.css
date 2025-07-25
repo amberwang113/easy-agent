@@ -10,8 +10,8 @@ html, body {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    width: 600px;
-    height: 800px;
+    width: 400px;
+    height: 600px;
     margin: auto;
     margin-top: 50px;
     background-color: #ffffff;
