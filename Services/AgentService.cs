@@ -2,7 +2,6 @@ using Azure.AI.Agents.Persistent;
 using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
-using EasyAgent;
 
 namespace EasyAgent.Services
 {

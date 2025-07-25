@@ -1,7 +1,6 @@
 using EasyAgent.Plugins;
 using EasyAgent;
 using EasyAgent.Services;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +16,6 @@ builder.Services.AddSingleton<IAgentService, AgentService>();
 
 // Register the plugin as scoped instead of singleton to ensure proper dependency injection
 builder.Services.AddScoped<SiteContextPlugin>();
-builder.Services.AddHostedService<WebsiteScrapingService>();
 
 var app = builder.Build();
 

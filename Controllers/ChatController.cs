@@ -1,16 +1,11 @@
-﻿using Azure.AI.Agents.Persistent;
-using Azure.AI.Projects;
-using Azure.Identity;
-using EasyAgent.Plugins;
+﻿using EasyAgent.Plugins;
 using EasyAgent.Models;
 using EasyAgent.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents.AzureAI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Text;
-using System.Text.Json;
 
 namespace EasyAgent.Controllers
 {

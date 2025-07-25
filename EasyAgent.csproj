@@ -7,15 +7,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Core Azure AI packages for agents and projects -->
     <PackageReference Include="Azure.AI.Agents.Persistent" Version="1.0.0" />
-    <PackageReference Include="Azure.AI.Inference" Version="1.0.0-beta.5" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Azure.AI.Projects" Version="1.0.0-beta.10" />
-    <PackageReference Include="Azure.ResourceManager" Version="1.13.2" />
-    <PackageReference Include="HtmlAgilityPack" Version="1.12.2" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.52.1" />
+    
+    <!-- Semantic Kernel for AI agent functionality -->
     <PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" Version="1.60.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.60.0" />
+    
+    <!-- Azure Cosmos DB for vector database -->
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.52.1" />
+    
+    <!-- JSON serialization for Cosmos DB -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
+
 </Project>

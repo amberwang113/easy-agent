@@ -2,7 +2,6 @@ using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
-using EasyAgent;
 
 namespace EasyAgent.Plugins
 {

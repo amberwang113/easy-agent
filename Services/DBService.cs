@@ -1,7 +1,6 @@
 ﻿using Azure.Core;
 using Microsoft.Azure.Cosmos;
 using Newtonsoft.Json;
-using System.Collections.ObjectModel;
 
 public class DBService
 {
@@ -38,55 +37,6 @@ public class DBService
         this.container = this.database.GetContainer(containerId);
     }
 
-    public async Task CreateFreshContainerAsync()
-    {
-        // Delete the old container
-        try
-        {
-            await container.DeleteContainerAsync();
-        }
-        catch (Exception e)
-        {
-            if (e.Message.Contains("NotFound"))
-            {
-                Console.WriteLine($"No existing container. Creating a new one.");
-            }
-        }
-
-        // Create a new empty container with vector index
-        List<Embedding> embeddings = new List<Embedding>()
-        {
-            new Embedding()
-            {
-                Path = "/Embedding",
-                DataType = VectorDataType.Float32,
-                DistanceFunction = DistanceFunction.Cosine,
-                Dimensions = 1536,
-            }
-        };
-
-        Collection<Embedding> collection = new Collection<Embedding>(embeddings);
-        ContainerProperties properties = new ContainerProperties(id: this.container.Id, partitionKeyPath: "/Url")
-        {
-            VectorEmbeddingPolicy = new(collection),
-            IndexingPolicy = new IndexingPolicy()
-            {
-                VectorIndexes =
-                [
-                    new VectorIndexPath()
-                    {
-                        Path = "/Embedding",
-                        Type = VectorIndexType.DiskANN,
-                    }
-                ]
-            },
-        };
-        properties.IndexingPolicy.IncludedPaths.Add(new IncludedPath { Path = "/*" });
-        properties.IndexingPolicy.ExcludedPaths.Add(new ExcludedPath { Path = "/Embedding/*" });
-
-        this.container = await database.CreateContainerIfNotExistsAsync(properties);
-    }
-
     public async Task<List<string>> GetNNearestTextsAndEmbeddingsAsync(float[] queryEmbedding, int topNResults = 5)
     {
         var queryDef = new QueryDefinition(
@@ -108,44 +58,5 @@ public class DBService
         }
 
         return results;
-    }
-
-    public async Task AddEmbedding(TextEmbeddingItem item)
-    {
-        try
-        {
-            if (!await IsDuplicateTextAsync(item))
-            {
-                await container.UpsertItemAsync(item, new PartitionKey(item.Url));
-            }
-            else
-            {
-                Console.WriteLine($"Duplicate item found: {item.ToString()}. Did not insert.");
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Error in the Cosmos Upsert: {e}");
-            throw;
-        }
-    }
-
-    private async Task<bool> IsDuplicateTextAsync(TextEmbeddingItem item)
-    {
-        var queryDefinition = new QueryDefinition("SELECT * FROM c WHERE c.TextHash = @textHash AND c.Url = @url")
-        .WithParameter("@textHash", item.TextHash)
-        .WithParameter("@url", item.Url);
-        var queryIterator = container.GetItemQueryIterator<TextEmbeddingItem>(queryDefinition, requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(item.Url) });
-
-        while (queryIterator.HasMoreResults)
-        {
-            var response = await queryIterator.ReadNextAsync();
-            if (response.Count > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

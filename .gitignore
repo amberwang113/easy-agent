@@ -7,4 +7,4 @@ obj/
 appsettings.Development.json
 
 *.user
-Properties/*
+Properties/PublishProfiles/
