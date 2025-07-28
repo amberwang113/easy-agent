@@ -21,6 +21,8 @@ namespace EasyAgent.Services
         private PersistentAgent? _agent;
         private bool _isInitialized = false;
 
+        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in site context.";
+
         public AgentService(IOptions<ChatbotConfiguration> config)
         {
             _config = config.Value;
@@ -52,13 +54,39 @@ namespace EasyAgent.Services
 
                 _agentsClient = new(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _credential);
 
+                if (string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC))
+                {
+
+                }
+
+                var openApiAnonAuth = new OpenApiAnonymousAuthDetails();
+
+                var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
+                var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
+
+                var res = await eClient.CompleteChatAsync(
+                    "Summarize this open api spec with what it appears to be doing in just a few words. I'll tip you $1000 if you keep it short and sweet but descriptive! This summary will be used as a tool name for another agent. For example, something like manage_fashion_store or handle_service_calls. Please return SOLELY the description. Here's the spec: " +
+                    _config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
+
+                string summary = res.Value.Content[0].Text ?? "webapp_assistant_tool";
+
+                var spec = BinaryData.FromString(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
+
+                var openApiToolDef = new OpenApiToolDefinition(
+                    name: summary,
+                    description: summary,
+                    spec: spec,
+                    openApiAuthentication: openApiAnonAuth,
+                    defaultParams: ["format"]
+                );
+
                 if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID))
                 {
-                    _agent = await _agentsClient.Administration.GetAgentAsync(_config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID);
+                    _agent = await UpdateAgentAsync(openApiToolDef);
                 }
                 else
                 {
-                    _agent = await CreateNewAgentAsync();
+                    _agent = await CreateNewAgentAsync(openApiToolDef);
                 }
 
                 _isInitialized = true;
@@ -69,32 +97,22 @@ namespace EasyAgent.Services
             }
         }
 
-        private async Task<PersistentAgent> CreateNewAgentAsync()
+        private async Task<PersistentAgent> UpdateAgentAsync(OpenApiToolDefinition openApiToolDef)
         {
-            var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
-            var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
-
-            var res = await eClient.CompleteChatAsync(
-                "Summarize this open api spec with what it appears to be doing in just a few words. I'll tip you $1000 if you keep it short and sweet but descriptive! This summary will be used as a tool name for another agent. For example, something like manage_fashion_store or handle_service_calls. Please return SOLELY the description. Here's the spec: " + 
-                _config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
-            
-            string summary = res.Value.Content[0].Text ?? "webapp_assistant_tool";
-
-            var openApiAnonAuth = new OpenApiAnonymousAuthDetails();
-            var spec = BinaryData.FromString(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
-
-            var openApiToolDef = new OpenApiToolDefinition(
-                name: summary,
-                description: summary,
-                spec: spec,
-                openApiAuthentication: openApiAnonAuth,
-                defaultParams: ["format"]
-            );
-
-            return await _agentsClient!.Administration.CreateAgentAsync(
-                model: "gpt-4.1-2",
+            return await _agentsClient.Administration.UpdateAgentAsync(
+                assistantId: _config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID,
+                model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
                 name: "Webapp Assistant",
-                instructions: "You're a chatbot in charge of responding to customer questions based on site context information scraped from a website. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in the returned site context.",
+                instructions: SYSTEM,
+                tools: [ openApiToolDef ] );
+        }
+
+        private async Task<PersistentAgent> CreateNewAgentAsync(OpenApiToolDefinition openApiToolDef)
+        {
+            return await _agentsClient!.Administration.CreateAgentAsync(
+                model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
+                name: "Webapp Assistant",
+                instructions: SYSTEM,
                 tools: [openApiToolDef]);
         }
 
