@@ -40,13 +40,17 @@ namespace EasyAgent.Controllers
             var agentsClient = await _agentService.GetAgentsClientAsync();
             var agent = await _agentService.GetAgentAsync();
 
-            // Create plugin for site context using the service provider
-            KernelPlugin siteContextPlugin = KernelPluginFactory.CreateFromType<SiteContextPlugin>("SiteContextQuery", serviceProvider: HttpContext.RequestServices);
+            // Enrich the user message with site context before sending to the agent
+            var siteContextPlugin = HttpContext.RequestServices.GetRequiredService<SiteContextPlugin>();
+            string siteContext = await siteContextPlugin.RequestMoreInformation(userMessage);
 
-#pragma warning disable SKEXP0110 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            string enrichedMessage = string.IsNullOrEmpty(siteContext)
+                ? userMessage
+                : $"{userMessage}\n\n[Site Context: {siteContext}]";
+
+#pragma warning disable SKEXP0110
+            // Don't add Kernel plugins — let the agent use its own stored tools (with auth intact)
             AzureAIAgent azureAgent = new(agent, agentsClient);
-
-            azureAgent.Kernel.Plugins.Add(siteContextPlugin);
 
             AzureAIAgentThread agentThread;
             if (string.IsNullOrEmpty(threadId))
@@ -57,10 +61,10 @@ namespace EasyAgent.Controllers
             {
                 agentThread = new(azureAgent.Client, threadId);
             }
-#pragma warning restore SKEXP0110 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning restore SKEXP0110
 
             StringBuilder result = new StringBuilder();
-            ChatMessageContent message = new(AuthorRole.User, userMessage);
+            ChatMessageContent message = new(AuthorRole.User, enrichedMessage);
             await foreach (ChatMessageContent response in azureAgent.InvokeAsync(message, agentThread))
             {
                 result.AppendLine(response.Content);

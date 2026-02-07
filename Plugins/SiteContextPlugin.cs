@@ -1,4 +1,5 @@
 using Azure.AI.Projects;
+using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
@@ -7,12 +8,15 @@ namespace EasyAgent.Plugins
 {
     public class SiteContextPlugin
     {
-        private DefaultAzureCredential _credential;
+        private TokenCredential _credential;
         private ChatbotConfiguration _config;
 
         public SiteContextPlugin(IOptions<ChatbotConfiguration> config)
         {
-            this._credential = new DefaultAzureCredential();
+            TokenCredential credential = !string.IsNullOrEmpty(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+            ? new ManagedIdentityCredential(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+            : new DefaultAzureCredential();
+            this._credential = credential;
             this._config = config.Value;
         }
 
@@ -24,9 +28,9 @@ namespace EasyAgent.Plugins
                 return string.Empty;
             }
 
-            // TODO: Don't hardcode the container name "base"
-            string dbName = _config.WEBSITE_EASYAGENT_SITECONTEXT_DB_NAME;
-            DBService dbService = new DBService(string.IsNullOrEmpty(dbName) ? _config.WEBSITE_EASYAGENT_SITECONTEXT_DB_ENDPOINT : dbName, _credential, _config.WEBSITE_SITE_NAME, "base");
+            // TODO: Don't hardcode "base" as container name
+            string dbName = string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_SITECONTEXT_DB_NAME) ? _config.WEBSITE_SITE_NAME + "-EasyAgent" : _config.WEBSITE_EASYAGENT_SITECONTEXT_DB_NAME;
+            DBService dbService = new DBService(_config.WEBSITE_EASYAGENT_SITECONTEXT_DB_ENDPOINT, _credential, dbName, "base");
 
             var qEmbedding = await GenerateEmbedding(question);
 

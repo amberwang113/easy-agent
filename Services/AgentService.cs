@@ -1,5 +1,6 @@
 using Azure.AI.Agents.Persistent;
 using Azure.AI.Projects;
+using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
 
@@ -14,19 +15,22 @@ namespace EasyAgent.Services
     public class AgentService : IAgentService
     {
         private readonly ChatbotConfiguration _config;
-        private readonly DefaultAzureCredential _credential;
+        private readonly TokenCredential _credential;
         private readonly SemaphoreSlim _initSemaphore = new(1, 1);
         
         private PersistentAgentsClient? _agentsClient;
         private PersistentAgent? _agent;
         private bool _isInitialized = false;
 
-        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in site context.";
+        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in site context. Return your answers with proper whitespace like newlines -- it will NOT be rendered to markdown.";
 
         public AgentService(IOptions<ChatbotConfiguration> config)
         {
             _config = config.Value;
-            _credential = new DefaultAzureCredential();
+            TokenCredential credential = !string.IsNullOrEmpty(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+            ? new ManagedIdentityCredential(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+            : new DefaultAzureCredential();
+            this._credential = credential;
         }
 
         public async Task<PersistentAgentsClient> GetAgentsClientAsync()
@@ -54,12 +58,12 @@ namespace EasyAgent.Services
 
                 _agentsClient = new(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _credential);
 
-                if (string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC))
-                {
-
-                }
-
-                var openApiAnonAuth = new OpenApiAnonymousAuthDetails();
+                // Use managed identity authentication for OpenAPI tool calls back to the EasyAuth-protected website
+                // The audience is the App Service URL derived from WEBSITE_SITE_NAME (e.g., https://triptastic.azurewebsites.net)
+                string audience = $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net";
+                var openApiManagedAuth = new OpenApiManagedAuthDetails(
+                    securityScheme: new OpenApiManagedSecurityScheme(
+                        audience: audience));
 
                 var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
                 var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
@@ -76,7 +80,7 @@ namespace EasyAgent.Services
                     name: summary,
                     description: summary,
                     spec: spec,
-                    openApiAuthentication: openApiAnonAuth,
+                    openApiAuthentication: openApiManagedAuth,
                     defaultParams: ["format"]
                 );
 

@@ -7,23 +7,25 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Core Azure AI packages for agents and projects -->
+    <!-- Your NuGet packages -->
     <PackageReference Include="Azure.AI.Agents.Persistent" Version="1.0.0" />
     <PackageReference Include="Azure.AI.Projects" Version="1.0.0-beta.10" />
-    
-    <!-- Semantic Kernel for AI agent functionality -->
     <PackageReference Include="Microsoft.SemanticKernel.Agents.AzureAI" Version="1.60.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.60.0" />
-    
-    <!-- Azure Cosmos DB for vector database -->
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.52.1" />
-    
-    <!-- JSON serialization for Cosmos DB -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="applicationHost.xdt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Include the WebJobs folder and all its contents in the published output -->
+    <Content Include="WebJobs\EasyAgentScraper.zip">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
