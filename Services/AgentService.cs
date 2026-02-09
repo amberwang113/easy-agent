@@ -22,7 +22,7 @@ namespace EasyAgent.Services
         private PersistentAgent? _agent;
         private bool _isInitialized = false;
 
-        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When possible, answer the question with the URL link that is provided in site context. Return your answers with proper whitespace like newlines -- it will NOT be rendered to markdown.";
+        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When providing URL links from site context, always choose the most specific page available. For example, if information about London appears on both a /destinations page and a /destinations/london page, link to /destinations/london. Prefer deeper, topic-specific URLs over general overview or listing pages. Return your answers with proper whitespace like newlines -- it will NOT be rendered to markdown.";
 
         public AgentService(IOptions<ChatbotConfiguration> config)
         {
@@ -58,12 +58,15 @@ namespace EasyAgent.Services
 
                 _agentsClient = new(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _credential);
 
-                // Use managed identity authentication for OpenAPI tool calls back to the EasyAuth-protected website
-                // The audience is the App Service URL derived from WEBSITE_SITE_NAME (e.g., https://triptastic.azurewebsites.net)
-                string audience = $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net";
-                var openApiManagedAuth = new OpenApiManagedAuthDetails(
-                    securityScheme: new OpenApiManagedSecurityScheme(
-                        audience: audience));
+                // Determine auth for OpenAPI tool calls back to the website.
+                // When EasyAuth is enabled, use managed identity auth with the site URL as audience.
+                // When EasyAuth is not enabled, use anonymous (no auth).
+                bool easyAuthEnabled = string.Equals(_config.WEBSITE_AUTH_ENABLED, "True", StringComparison.OrdinalIgnoreCase);
+                OpenApiAuthDetails openApiAuth = easyAuthEnabled
+                    ? new OpenApiManagedAuthDetails(
+                        securityScheme: new OpenApiManagedSecurityScheme(
+                            audience: $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net"))
+                    : new OpenApiAnonymousAuthDetails();
 
                 var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
                 var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
@@ -80,7 +83,7 @@ namespace EasyAgent.Services
                     name: summary,
                     description: summary,
                     spec: spec,
-                    openApiAuthentication: openApiManagedAuth,
+                    openApiAuthentication: openApiAuth,
                     defaultParams: ["format"]
                 );
 
