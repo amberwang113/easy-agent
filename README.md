@@ -1,6 +1,6 @@
 # Easy Agent
 
-> **TL;DR for agents/developers:** This is a .NET 9 Azure App Service **site extension** that bolts an AI chat assistant onto any existing website. It scrapes the host site into Cosmos DB embeddings, then uses RAG + Azure AI Foundry agents to answer user questions from that site content. It mounts at `/ai/chat` via an IIS `applicationHost.xdt` transform. All auth (EasyAuth, managed identity) is handled automatically.
+> **TL;DR for agents/developers:** This is a .NET 9 Azure App Service **site extension** that bolts an AI chat assistant onto any existing website. It scrapes the host site into Cosmos DB embeddings, then uses RAG + Azure AI Foundry agents to answer user questions from that site content. It mounts at `/ai/chat` via an IIS `applicationHost.xdt` transform. All auth (EasyAuth, managed identity, OBO) is handled automatically.
 
 ## What This Project Is
 
@@ -28,6 +28,7 @@ EasyAgent/
 ??? web.config                       ? ASP.NET Core out-of-process hosting
 ??? WebJobs/EasyAgentScraper.zip     ? Bundled scraper WebJob (extracted at startup)
 ??? EasyAgent.nuspec                 ? NuGet packaging for site extension
+??? EasyAuthOBO.md                   ? OBO auth guide for demo site developers
 ??? build.cmd                        ? Build + publish + pack
 ```
 
@@ -67,6 +68,9 @@ All settings are **App Service application settings** (environment variables), b
 | `WEBSITE_MANAGED_CLIENT_ID` | User-assigned managed identity client ID (falls back to `DefaultAzureCredential`) |
 | `WEBSITE_SITE_NAME` | App Service site name (set automatically by Azure) |
 | `WEBSITE_AUTH_ENABLED` | Set automatically by Azure when EasyAuth is on |
+| `WEBSITE_EASYAGENT_OBO_TENANT_ID` | Microsoft Entra ID tenant ID for OBO flow (optional; see [OBO section](#on-behalf-of-obo-authentication)) |
+| `WEBSITE_EASYAGENT_OBO_CLIENT_ID` | App registration (client) ID for OBO flow (optional) |
+| `WEBSITE_EASYAGENT_OBO_CLIENT_SECRET` | Client secret for OBO token exchange (optional) |
 
 ## EasyAuth Compatibility
 
@@ -78,6 +82,32 @@ All settings are **App Service application settings** (environment variables), b
 | **Disabled** | `OpenApiAnonymousAuthDetails` | No auth headers on tool callbacks. |
 
 No manual configuration is needed — the extension adapts automatically.
+
+## On-Behalf-Of (OBO) Authentication
+
+By default, Easy Agent calls Azure AI Foundry using the App Service's **managed identity**. This means every user's request hits Foundry as the *application*, not as the logged-in user.
+
+The **OBO flow** changes this: when a signed-in user sends a chat message, Easy Agent exchanges their EasyAuth access token for a new token that represents *that specific user*. Foundry then acts **on behalf of** the user, and any OpenAPI tool callbacks to your API carry the user's identity.
+
+**How it works:**
+
+1. EasyAuth authenticates the user and injects their AAD token into `X-MS-TOKEN-AAD-ACCESS-TOKEN`.
+2. `ChatController` reads this header and passes the token to `AgentService.GetAgentsClientAsync(userToken)`.
+3. `AgentService` creates an `OnBehalfOfCredential` using the token + the three OBO app settings.
+4. A per-request `PersistentAgentsClient` is built with that credential.
+5. The cached agent definition (`PersistentAgent`) is shared — only the client credential changes per request.
+
+**Activation rules:**
+
+| OBO Settings | User Token (EasyAuth) | Credential Used |
+|---|---|---|
+| ? Not configured | — | Managed identity / `DefaultAzureCredential` |
+| ? All three set | ? Missing | Managed identity / `DefaultAzureCredential` |
+| ? All three set | ? Present | `OnBehalfOfCredential` (user impersonation) |
+
+OBO is entirely opt-in. When the three settings are absent, the app behaves exactly as before.
+
+For full details on configuring your demo site to accept OBO tokens, differentiate between user and managed identity callers, and test the flow, see **[EasyAuthOBO.md](EasyAuthOBO.md)**.
 
 ## Build & Deploy
 
@@ -94,5 +124,5 @@ This runs `dotnet publish -c Release` then `nuget pack EasyAgent.nuspec`, produc
 - **Microsoft Semantic Kernel** (`Microsoft.SemanticKernel.Agents.AzureAI`)
 - **Azure AI Foundry** (persistent agents, OpenAPI tool use)
 - **Azure Cosmos DB** (vector search via `VectorDistance`)
-- **Azure Managed Identity** / `DefaultAzureCredential`
+- **Azure Managed Identity** / `DefaultAzureCredential` / `OnBehalfOfCredential`
 

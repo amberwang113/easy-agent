@@ -25,7 +25,10 @@ namespace EasyAgent.Controllers
         {
             try
             {
-                return Ok(await CallAIFoundryAgent(chatMessage.Content, chatMessage.SessionId));
+                // Extract user token from EasyAuth header if present (for OBO flow)
+                string? userToken = HttpContext.Request.Headers["X-MS-TOKEN-AAD-ACCESS-TOKEN"].FirstOrDefault();
+
+                return Ok(await CallAIFoundryAgent(chatMessage.Content, chatMessage.SessionId, userToken));
             }
             catch (Exception e)
             {
@@ -34,10 +37,10 @@ namespace EasyAgent.Controllers
             }
         }
 
-        private async Task<ChatMessage> CallAIFoundryAgent(string userMessage, string threadId)
+        private async Task<ChatMessage> CallAIFoundryAgent(string userMessage, string threadId, string? userToken)
         {
-            // Get the agent and client from the service (thread-safe)
-            var agentsClient = await _agentService.GetAgentsClientAsync();
+            // Get the agent definition (cached) and a per-request client (OBO-aware)
+            var agentsClient = await _agentService.GetAgentsClientAsync(userToken);
             var agent = await _agentService.GetAgentAsync();
 
             // Enrich the user message with site context before sending to the agent

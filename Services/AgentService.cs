@@ -8,17 +8,22 @@ namespace EasyAgent.Services
 {
     public interface IAgentService
     {
-        Task<PersistentAgentsClient> GetAgentsClientAsync();
+        /// <summary>
+        /// Gets a PersistentAgentsClient. When a user token is provided and OBO is configured,
+        /// the client is created with an OnBehalfOfCredential for that user.
+        /// Otherwise falls back to managed identity / DefaultAzureCredential.
+        /// </summary>
+        Task<PersistentAgentsClient> GetAgentsClientAsync(string? userToken = null);
         Task<PersistentAgent> GetAgentAsync();
     }
 
     public class AgentService : IAgentService
     {
         private readonly ChatbotConfiguration _config;
-        private readonly TokenCredential _credential;
+        private readonly TokenCredential _defaultCredential;
         private readonly SemaphoreSlim _initSemaphore = new(1, 1);
-        
-        private PersistentAgentsClient? _agentsClient;
+
+        // Cached agent definition — shared across all requests
         private PersistentAgent? _agent;
         private bool _isInitialized = false;
 
@@ -27,22 +32,43 @@ namespace EasyAgent.Services
         public AgentService(IOptions<ChatbotConfiguration> config)
         {
             _config = config.Value;
-            TokenCredential credential = !string.IsNullOrEmpty(config.Value.WEBSITE_MANAGED_CLIENT_ID)
-            ? new ManagedIdentityCredential(config.Value.WEBSITE_MANAGED_CLIENT_ID)
-            : new DefaultAzureCredential();
-            this._credential = credential;
+            _defaultCredential = !string.IsNullOrEmpty(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+                ? new ManagedIdentityCredential(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+                : new DefaultAzureCredential();
         }
 
-        public async Task<PersistentAgentsClient> GetAgentsClientAsync()
+        public async Task<PersistentAgentsClient> GetAgentsClientAsync(string? userToken = null)
         {
             await EnsureInitializedAsync();
-            return _agentsClient!;
+
+            // When OBO is configured and a user token is available, create a per-request
+            // client with OnBehalfOfCredential so downstream calls act as the user.
+            if (!string.IsNullOrEmpty(userToken) && IsOboConfigured())
+            {
+                var oboCredential = new OnBehalfOfCredential(
+                    _config.WEBSITE_EASYAGENT_OBO_TENANT_ID,
+                    _config.WEBSITE_EASYAGENT_OBO_CLIENT_ID,
+                    _config.WEBSITE_EASYAGENT_OBO_CLIENT_SECRET,
+                    userToken);
+
+                return new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, oboCredential);
+            }
+
+            // Fall back to default (managed identity / DefaultAzureCredential)
+            return new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
         }
 
         public async Task<PersistentAgent> GetAgentAsync()
         {
             await EnsureInitializedAsync();
             return _agent!;
+        }
+
+        private bool IsOboConfigured()
+        {
+            return !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_TENANT_ID)
+                && !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_CLIENT_ID)
+                && !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_CLIENT_SECRET);
         }
 
         private async Task EnsureInitializedAsync()
@@ -56,7 +82,8 @@ namespace EasyAgent.Services
                 if (_isInitialized)
                     return;
 
-                _agentsClient = new(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _credential);
+                // Use default credential for agent setup (one-time initialization)
+                var defaultClient = new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
 
                 // Determine auth for OpenAPI tool calls back to the website.
                 // When EasyAuth is enabled, use managed identity auth with the site URL as audience.
@@ -68,7 +95,7 @@ namespace EasyAgent.Services
                             audience: $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net"))
                     : new OpenApiAnonymousAuthDetails();
 
-                var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _credential);
+                var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _defaultCredential);
                 var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
 
                 var res = await eClient.CompleteChatAsync(
@@ -89,11 +116,11 @@ namespace EasyAgent.Services
 
                 if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID))
                 {
-                    _agent = await UpdateAgentAsync(openApiToolDef);
+                    _agent = await UpdateAgentAsync(defaultClient, openApiToolDef);
                 }
                 else
                 {
-                    _agent = await CreateNewAgentAsync(openApiToolDef);
+                    _agent = await CreateNewAgentAsync(defaultClient, openApiToolDef);
                 }
 
                 _isInitialized = true;
@@ -104,9 +131,9 @@ namespace EasyAgent.Services
             }
         }
 
-        private async Task<PersistentAgent> UpdateAgentAsync(OpenApiToolDefinition openApiToolDef)
+        private async Task<PersistentAgent> UpdateAgentAsync(PersistentAgentsClient client, OpenApiToolDefinition openApiToolDef)
         {
-            return await _agentsClient.Administration.UpdateAgentAsync(
+            return await client.Administration.UpdateAgentAsync(
                 assistantId: _config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID,
                 model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
                 name: "Webapp Assistant",
@@ -114,9 +141,9 @@ namespace EasyAgent.Services
                 tools: [ openApiToolDef ] );
         }
 
-        private async Task<PersistentAgent> CreateNewAgentAsync(OpenApiToolDefinition openApiToolDef)
+        private async Task<PersistentAgent> CreateNewAgentAsync(PersistentAgentsClient client, OpenApiToolDefinition openApiToolDef)
         {
-            return await _agentsClient!.Administration.CreateAgentAsync(
+            return await client.Administration.CreateAgentAsync(
                 model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
                 name: "Webapp Assistant",
                 instructions: SYSTEM,
