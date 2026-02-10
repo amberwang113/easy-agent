@@ -71,15 +71,17 @@ All settings are **App Service application settings** (environment variables), b
 | `WEBSITE_EASYAGENT_OBO_TENANT_ID` | Microsoft Entra ID tenant ID for OBO flow (optional; see [OBO section](#on-behalf-of-obo-authentication)) |
 | `WEBSITE_EASYAGENT_OBO_CLIENT_ID` | App registration (client) ID for OBO flow (optional) |
 | `WEBSITE_EASYAGENT_OBO_CLIENT_SECRET` | Client secret for OBO token exchange (optional) |
+| `WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID` | Foundry connection ID for user-delegated OpenAPI tool auth (optional; see [EasyAuth section](#easyauth-compatibility)) |
 
 ## EasyAuth Compatibility
 
-`AgentService` checks `WEBSITE_AUTH_ENABLED` at initialization and configures the agent's OpenAPI tool auth accordingly:
+`AgentService` checks configuration at initialization and selects OpenAPI tool auth in this priority order:
 
-| EasyAuth State | Agent Tool Auth | Details |
-|---|---|---|
-| **Enabled** (`True`) | `OpenApiManagedAuthDetails` | Token audience: `https://{WEBSITE_SITE_NAME}.azurewebsites.net`. The agent uses managed identity to authenticate callbacks through EasyAuth. |
-| **Disabled** | `OpenApiAnonymousAuthDetails` | No auth headers on tool callbacks. |
+| Priority | Condition | Agent Tool Auth | Details |
+|---|---|---|---|
+| 1 | `WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID` is set | `OpenApiConnectionAuthDetails` | Uses a Foundry connection for user-delegated auth on tool callbacks. The connection must be configured in the AI Foundry portal with OAuth/OBO. |
+| 2 | `WEBSITE_AUTH_ENABLED` is `True` | `OpenApiManagedAuthDetails` | Token audience: `https://{WEBSITE_SITE_NAME}.azurewebsites.net`. Foundry uses its managed identity for tool callbacks. |
+| 3 | Neither | `OpenApiAnonymousAuthDetails` | No auth headers on tool callbacks. |
 
 No manual configuration is needed — the extension adapts automatically.
 

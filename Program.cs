@@ -30,6 +30,7 @@ Console.WriteLine($"  WEBSITE_MANAGED_CLIENT_ID: '{builder.Configuration["WEBSIT
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_TENANT_ID: '{builder.Configuration["WEBSITE_EASYAGENT_OBO_TENANT_ID"]}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_ID: '{builder.Configuration["WEBSITE_EASYAGENT_OBO_CLIENT_ID"]}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_SECRET: '{(string.IsNullOrEmpty(builder.Configuration["WEBSITE_EASYAGENT_OBO_CLIENT_SECRET"]) ? "" : "***")}'");
+Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID: '{builder.Configuration["WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID"]}'");
 Console.WriteLine("");
 Console.WriteLine("From Environment.GetEnvironmentVariable:");
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT")}'");
@@ -39,6 +40,7 @@ Console.WriteLine($"  WEBSITE_MANAGED_CLIENT_ID: '{Environment.GetEnvironmentVar
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_TENANT_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_TENANT_ID")}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_CLIENT_ID")}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_SECRET: '{(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_CLIENT_SECRET")) ? "" : "***")}'");
+Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID")}'");
 Console.WriteLine("");
 Console.WriteLine("Site Extension Info:");
 Console.WriteLine($"  XDT_EXTENSIONPATH: '{Environment.GetEnvironmentVariable("XDT_EXTENSIONPATH")}'");

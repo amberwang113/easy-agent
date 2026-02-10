@@ -86,14 +86,28 @@ namespace EasyAgent.Services
                 var defaultClient = new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
 
                 // Determine auth for OpenAPI tool calls back to the website.
-                // When EasyAuth is enabled, use managed identity auth with the site URL as audience.
-                // When EasyAuth is not enabled, use anonymous (no auth).
+                // Priority:
+                //   1. Connection-based auth (user-delegated via Foundry connection) — when connection ID is configured
+                //   2. Managed identity auth — when EasyAuth is enabled but no connection ID
+                //   3. Anonymous — when EasyAuth is not enabled
                 bool easyAuthEnabled = string.Equals(_config.WEBSITE_AUTH_ENABLED, "True", StringComparison.OrdinalIgnoreCase);
-                OpenApiAuthDetails openApiAuth = easyAuthEnabled
-                    ? new OpenApiManagedAuthDetails(
+                OpenApiAuthDetails openApiAuth;
+                if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID))
+                {
+                    openApiAuth = new OpenApiConnectionAuthDetails(
+                        securityScheme: new OpenApiConnectionSecurityScheme(
+                            connectionId: _config.WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID));
+                }
+                else if (easyAuthEnabled)
+                {
+                    openApiAuth = new OpenApiManagedAuthDetails(
                         securityScheme: new OpenApiManagedSecurityScheme(
-                            audience: $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net"))
-                    : new OpenApiAnonymousAuthDetails();
+                            audience: $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net"));
+                }
+                else
+                {
+                    openApiAuth = new OpenApiAnonymousAuthDetails();
+                }
 
                 var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _defaultCredential);
                 var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
