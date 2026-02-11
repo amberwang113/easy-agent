@@ -28,6 +28,12 @@ html, body {
     font-size: 18px;
 }
 
+.thread-id {
+    font-size: 10px;
+    opacity: 0.8;
+    margin-top: 2px;
+}
+
 .chat-icon {
     height: 15px;
     width: auto;

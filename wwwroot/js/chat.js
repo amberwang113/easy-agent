@@ -17,6 +17,8 @@ function initializeChat() {
     document.getElementById('user-input').addEventListener('keydown', handleKeyDown);
     document.getElementById('send-button').addEventListener('click', sendMessage);
     document.getElementById('reset-button').addEventListener('click', resetThread);
+    updateThreadIdDisplay();
+    loadHistory();
 }
 
 function handleKeyDown(event) {
@@ -30,6 +32,7 @@ function resetThread() {
     localStorage.removeItem("threadId");
     threadId = null;
     document.getElementById('chat-messages').innerHTML = '';
+    updateThreadIdDisplay();
 }
 
 function sendMessage() {
@@ -57,11 +60,12 @@ function sendMessage() {
         })
         .then(data => {
             hideLoading();
-            appendMessage('bot-message', data.content);
             if (data.sessionId) {
                 threadId = data.sessionId;
                 localStorage.setItem("threadId", threadId);
+                updateThreadIdDisplay();
             }
+            appendMessage('bot-message', data.content);
         })
         .catch(error => {
             hideLoading();
@@ -95,4 +99,41 @@ function hideLoading() {
     const loadingContainer = document.getElementById('loading-container');
     loadingContainer.style.display = 'none';
     clearInterval(loadingInterval);
+}
+
+function updateThreadIdDisplay() {
+    const el = document.getElementById('thread-id');
+    if (el) {
+        el.textContent = threadId ? `Thread: ${threadId}` : '';
+    }
+}
+
+function loadHistory() {
+    if (!threadId) return;
+
+    fetch(`${window.location.origin}/history?threadId=${encodeURIComponent(threadId)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.expired) {
+                // Thread no longer exists in the Foundry — reset locally
+                console.warn('Thread expired or not found, resetting.');
+                resetThread();
+                return;
+            }
+            if (Array.isArray(data)) {
+                data.forEach(msg => {
+                    // Strip enriched site-context from user messages
+                    let text = msg.content;
+                    const ctxIdx = text.indexOf('\n\n[Site Context:');
+                    if (msg.role === 'user' && ctxIdx !== -1) {
+                        text = text.substring(0, ctxIdx);
+                    }
+                    const className = msg.role === 'user' ? 'user-message' : 'bot-message';
+                    appendMessage(className, text);
+                });
+            }
+        })
+        .catch(err => {
+            console.error('Failed to load thread history:', err);
+        });
 }

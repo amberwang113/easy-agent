@@ -15,6 +15,12 @@ builder.Services.AddControllers();
 // Register the agent service as singleton for thread-safe initialization
 builder.Services.AddSingleton<IAgentService, AgentService>();
 
+// Register the tool call executor with a typed HttpClient
+builder.Services.AddHttpClient<ToolCallExecutor>();
+
+// Eagerly initialize the agent service at startup
+builder.Services.AddHostedService<AgentInitializationService>();
+
 // Register the plugin as scoped instead of singleton to ensure proper dependency injection
 builder.Services.AddScoped<SiteContextPlugin>();
 
@@ -27,20 +33,12 @@ Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT: '{builder.Configuratio
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL: '{builder.Configuration["WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL"]}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_AGENTID: '{builder.Configuration["WEBSITE_EASYAGENT_FOUNDRY_AGENTID"]}'");
 Console.WriteLine($"  WEBSITE_MANAGED_CLIENT_ID: '{builder.Configuration["WEBSITE_MANAGED_CLIENT_ID"]}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_TENANT_ID: '{builder.Configuration["WEBSITE_EASYAGENT_OBO_TENANT_ID"]}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_ID: '{builder.Configuration["WEBSITE_EASYAGENT_OBO_CLIENT_ID"]}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_SECRET: '{(string.IsNullOrEmpty(builder.Configuration["WEBSITE_EASYAGENT_OBO_CLIENT_SECRET"]) ? "" : "***")}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID: '{builder.Configuration["WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID"]}'");
 Console.WriteLine("");
 Console.WriteLine("From Environment.GetEnvironmentVariable:");
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT")}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL")}'");
 Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_AGENTID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_AGENTID")}'");
 Console.WriteLine($"  WEBSITE_MANAGED_CLIENT_ID: '{Environment.GetEnvironmentVariable("WEBSITE_MANAGED_CLIENT_ID")}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_TENANT_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_TENANT_ID")}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_CLIENT_ID")}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_OBO_CLIENT_SECRET: '{(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_OBO_CLIENT_SECRET")) ? "" : "***")}'");
-Console.WriteLine($"  WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID: '{Environment.GetEnvironmentVariable("WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID")}'");
 Console.WriteLine("");
 Console.WriteLine("Site Extension Info:");
 Console.WriteLine($"  XDT_EXTENSIONPATH: '{Environment.GetEnvironmentVariable("XDT_EXTENSIONPATH")}'");

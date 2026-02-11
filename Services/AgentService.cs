@@ -9,52 +9,65 @@ namespace EasyAgent.Services
     public interface IAgentService
     {
         /// <summary>
-        /// Gets a PersistentAgentsClient. When a user token is provided and OBO is configured,
-        /// the client is created with an OnBehalfOfCredential for that user.
-        /// Otherwise falls back to managed identity / DefaultAzureCredential.
+        /// Gets a <see cref="PersistentAgentsClient"/> authenticated with managed identity.
         /// </summary>
-        Task<PersistentAgentsClient> GetAgentsClientAsync(string? userToken = null);
+        Task<PersistentAgentsClient> GetAgentsClientAsync();
+
+        /// <summary>
+        /// Returns the cached Foundry agent definition (created or updated on first call).
+        /// </summary>
         Task<PersistentAgent> GetAgentAsync();
+
+        /// <summary>
+        /// Returns the mapping from function-tool name to HTTP details built from the
+        /// OpenAPI spec. Available after initialization completes.
+        /// </summary>
+        IReadOnlyDictionary<string, ToolHttpInfo> ToolMap { get; }
     }
 
-    public class AgentService : IAgentService
+    public sealed class AgentService : IAgentService, IDisposable
     {
         private readonly ChatbotConfiguration _config;
+        private readonly ILogger<AgentService> _logger;
         private readonly TokenCredential _defaultCredential;
         private readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
-        // Cached agent definition — shared across all requests
         private PersistentAgent? _agent;
-        private bool _isInitialized = false;
+        private IReadOnlyDictionary<string, ToolHttpInfo>? _toolMap;
+        private bool _isInitialized;
 
-        private const string SYSTEM = "You're an agent in charge of responding to customer questions and performing actions. You may use site context information to help if necessary. The site context should be taken as correct and questions from the customer should ONLY be answered from that pool of knowledge, not any prior information. When providing URL links from site context, always choose the most specific page available. For example, if information about London appears on both a /destinations page and a /destinations/london page, link to /destinations/london. Prefer deeper, topic-specific URLs over general overview or listing pages. Return your answers with proper whitespace like newlines -- it will NOT be rendered to markdown.";
+        private const string SystemPrompt =
+            "You're an agent in charge of responding to customer questions and performing actions. " +
+            "You may use site context information to help if necessary. The site context should be taken " +
+            "as correct and questions from the customer should ONLY be answered from that pool of knowledge, " +
+            "not any prior information. When providing URL links from site context, always choose the most " +
+            "specific page available. For example, if information about London appears on both a /destinations " +
+            "page and a /destinations/london page, link to /destinations/london. Prefer deeper, topic-specific " +
+            "URLs over general overview or listing pages. Return your answers with proper whitespace like " +
+            "newlines -- it will NOT be rendered to markdown.";
 
-        public AgentService(IOptions<ChatbotConfiguration> config)
+        public AgentService(IOptions<ChatbotConfiguration> config, ILogger<AgentService> logger)
         {
             _config = config.Value;
-            _defaultCredential = !string.IsNullOrEmpty(config.Value.WEBSITE_MANAGED_CLIENT_ID)
-                ? new ManagedIdentityCredential(config.Value.WEBSITE_MANAGED_CLIENT_ID)
+            _logger = logger;
+            _defaultCredential = !string.IsNullOrEmpty(_config.WEBSITE_MANAGED_CLIENT_ID)
+                ? new ManagedIdentityCredential(_config.WEBSITE_MANAGED_CLIENT_ID)
                 : new DefaultAzureCredential();
         }
 
-        public async Task<PersistentAgentsClient> GetAgentsClientAsync(string? userToken = null)
+        public IReadOnlyDictionary<string, ToolHttpInfo> ToolMap
+        {
+            get
+            {
+                if (!_isInitialized)
+                    throw new InvalidOperationException("AgentService has not been initialized yet. Call GetAgentAsync() first.");
+                return _toolMap!;
+            }
+        }
+
+        public async Task<PersistentAgentsClient> GetAgentsClientAsync()
         {
             await EnsureInitializedAsync();
-
-            // When OBO is configured and a user token is available, create a per-request
-            // client with OnBehalfOfCredential so downstream calls act as the user.
-            if (!string.IsNullOrEmpty(userToken) && IsOboConfigured())
-            {
-                var oboCredential = new OnBehalfOfCredential(
-                    _config.WEBSITE_EASYAGENT_OBO_TENANT_ID,
-                    _config.WEBSITE_EASYAGENT_OBO_CLIENT_ID,
-                    _config.WEBSITE_EASYAGENT_OBO_CLIENT_SECRET,
-                    userToken);
-
-                return new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, oboCredential);
-            }
-
-            // Fall back to default (managed identity / DefaultAzureCredential)
             return new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
         }
 
@@ -62,13 +75,6 @@ namespace EasyAgent.Services
         {
             await EnsureInitializedAsync();
             return _agent!;
-        }
-
-        private bool IsOboConfigured()
-        {
-            return !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_TENANT_ID)
-                && !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_CLIENT_ID)
-                && !string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_OBO_CLIENT_SECRET);
         }
 
         private async Task EnsureInitializedAsync()
@@ -82,59 +88,79 @@ namespace EasyAgent.Services
                 if (_isInitialized)
                     return;
 
-                // Use default credential for agent setup (one-time initialization)
-                var defaultClient = new PersistentAgentsClient(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
+                _logger.LogInformation("Initializing AgentService...");
 
-                // Determine auth for OpenAPI tool calls back to the website.
-                // Priority:
-                //   1. Connection-based auth (user-delegated via Foundry connection) — when connection ID is configured
-                //   2. Managed identity auth — when EasyAuth is enabled but no connection ID
-                //   3. Anonymous — when EasyAuth is not enabled
-                bool easyAuthEnabled = string.Equals(_config.WEBSITE_AUTH_ENABLED, "True", StringComparison.OrdinalIgnoreCase);
-                OpenApiAuthDetails openApiAuth;
-                if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID))
+                var defaultClient = new PersistentAgentsClient(
+                    _config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT, _defaultCredential);
+
+                // Convert the OpenAPI spec into function tool definitions so we can execute
+                // the HTTP calls ourselves instead of relying on Foundry callbacks.
+                IReadOnlyList<ToolDefinition> toolDefinitions;
+                if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC))
                 {
-                    openApiAuth = new OpenApiConnectionAuthDetails(
-                        securityScheme: new OpenApiConnectionSecurityScheme(
-                            connectionId: _config.WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID));
-                }
-                else if (easyAuthEnabled)
-                {
-                    openApiAuth = new OpenApiManagedAuthDetails(
-                        securityScheme: new OpenApiManagedSecurityScheme(
-                            audience: $"https://{_config.WEBSITE_SITE_NAME}.azurewebsites.net"));
+                    var (tools, toolMap) = OpenApiToolConverter.Convert(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
+                    _toolMap = toolMap;
+                    toolDefinitions = tools.Cast<ToolDefinition>().ToList();
+
+                    _logger.LogInformation("Converted OpenAPI spec into {Count} function tools: {Names}",
+                        tools.Count, string.Join(", ", toolMap.Keys));
                 }
                 else
                 {
-                    openApiAuth = new OpenApiAnonymousAuthDetails();
+                    _toolMap = new Dictionary<string, ToolHttpInfo>();
+                    toolDefinitions = Array.Empty<ToolDefinition>();
+
+                    _logger.LogInformation("No OpenAPI spec configured. Agent will have no API tools");
                 }
 
-                var aClient = new AIProjectClient(new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _defaultCredential);
-                var eClient = aClient.GetAzureOpenAIChatClient(deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
+                // Build the agent instructions. When an OpenAPI spec is present, ask the LLM for
+                // a short summary to include in the instructions so the agent understands its tools.
+                string instructions = SystemPrompt;
+                if (toolDefinitions.Count > 0)
+                {
+                    try
+                    {
+                        var projectClient = new AIProjectClient(
+                            new Uri(_config.WEBSITE_EASYAGENT_FOUNDRY_ENDPOINT), _defaultCredential);
+                        var chatClient = projectClient.GetAzureOpenAIChatClient(
+                            deploymentName: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL);
 
-                var res = await eClient.CompleteChatAsync(
-                    "Summarize this open api spec with what it appears to be doing in just a few words. I'll tip you $1000 if you keep it short and sweet but descriptive! This summary will be used as a tool name for another agent. For example, something like manage_fashion_store or handle_service_calls. Please return SOLELY the description. Here's the spec: " +
-                    _config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
+                        var summaryResponse = await chatClient.CompleteChatAsync(
+                            "Summarize this OpenAPI spec with what it appears to be doing in just a few words. " +
+                            "Keep it short and descriptive ï¿½ this will be appended to an agent's instructions. " +
+                            "Return SOLELY the description. Here's the spec: " +
+                            _config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
 
-                string summary = res.Value.Content[0].Text ?? "webapp_assistant_tool";
-
-                var spec = BinaryData.FromString(_config.WEBSITE_EASYAGENT_FOUNDRY_OPENAPISPEC);
-
-                var openApiToolDef = new OpenApiToolDefinition(
-                    name: summary,
-                    description: summary,
-                    spec: spec,
-                    openApiAuthentication: openApiAuth,
-                    defaultParams: ["format"]
-                );
+                        string summary = summaryResponse.Value.Content[0].Text ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(summary))
+                            instructions += $"\n\nYou also have tools that let you {summary}.";
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to generate spec summary ï¿½ continuing without it");
+                    }
+                }
 
                 if (!string.IsNullOrEmpty(_config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID))
                 {
-                    _agent = await UpdateAgentAsync(defaultClient, openApiToolDef);
+                    _agent = await defaultClient.Administration.UpdateAgentAsync(
+                        assistantId: _config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID,
+                        model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
+                        name: "Webapp Assistant",
+                        instructions: instructions,
+                        tools: toolDefinitions);
+
+                    _logger.LogInformation("Updated existing agent {AgentId}", _agent.Id);
                 }
                 else
                 {
-                    _agent = await CreateNewAgentAsync(defaultClient, openApiToolDef);
+                    _agent = await defaultClient.Administration.CreateAgentAsync(
+                        model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
+                        name: "Webapp Assistant",
+                        instructions: instructions,
+                        tools: toolDefinitions);
+
+                    _logger.LogInformation("Created new agent {AgentId}", _agent.Id);
                 }
 
                 _isInitialized = true;
@@ -145,28 +171,9 @@ namespace EasyAgent.Services
             }
         }
 
-        private async Task<PersistentAgent> UpdateAgentAsync(PersistentAgentsClient client, OpenApiToolDefinition openApiToolDef)
-        {
-            return await client.Administration.UpdateAgentAsync(
-                assistantId: _config.WEBSITE_EASYAGENT_FOUNDRY_AGENTID,
-                model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
-                name: "Webapp Assistant",
-                instructions: SYSTEM,
-                tools: [ openApiToolDef ] );
-        }
-
-        private async Task<PersistentAgent> CreateNewAgentAsync(PersistentAgentsClient client, OpenApiToolDefinition openApiToolDef)
-        {
-            return await client.Administration.CreateAgentAsync(
-                model: _config.WEBSITE_EASYAGENT_FOUNDRY_CHAT_MODEL,
-                name: "Webapp Assistant",
-                instructions: SYSTEM,
-                tools: [openApiToolDef]);
-        }
-
         public void Dispose()
         {
-            _initSemaphore?.Dispose();
+            _initSemaphore.Dispose();
         }
     }
 }

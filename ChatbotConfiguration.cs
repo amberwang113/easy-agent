@@ -12,9 +12,5 @@
         public string WEBSITE_SITE_NAME { get; set; } = string.Empty;
         public string WEBSITE_MANAGED_CLIENT_ID { get; set; } = string.Empty;
         public string WEBSITE_AUTH_ENABLED { get; set; } = string.Empty;
-        public string WEBSITE_EASYAGENT_OBO_TENANT_ID { get; set; } = string.Empty;
-        public string WEBSITE_EASYAGENT_OBO_CLIENT_ID { get; set; } = string.Empty;
-        public string WEBSITE_EASYAGENT_OBO_CLIENT_SECRET { get; set; } = string.Empty;
-        public string WEBSITE_EASYAGENT_FOUNDRY_CONNECTION_ID { get; set; } = string.Empty;
     }
 }

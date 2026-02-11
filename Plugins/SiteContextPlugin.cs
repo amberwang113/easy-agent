@@ -2,7 +2,6 @@ using Azure.AI.Projects;
 using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
-using Microsoft.SemanticKernel;
 
 namespace EasyAgent.Plugins
 {
@@ -20,7 +19,6 @@ namespace EasyAgent.Plugins
             this._config = config.Value;
         }
 
-        [KernelFunction("request_more_information_from_site_context")]
         public async Task<string> RequestMoreInformation(string question)
         {
             if(string.IsNullOrEmpty(question))
